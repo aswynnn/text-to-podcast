@@ -7,6 +7,9 @@ import os
 import tempfile
 from google.cloud import texttospeech
 
+with open("lateral-attic-458912-v0-e43739667fca.json", "w") as f:
+    f.write(st.secrets["gcp"]["credentials"])
+    
 # Load environment variables
 load_dotenv()
 os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
