@@ -1,0 +1,45 @@
+name: Document to Podcast - Streamlit App
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install streamlit
+
+      - name: Create Google Credentials file from secret
+        run: |
+          echo "${{ secrets.GOOGLE_CREDENTIALS_B64 }}" | base64 -d > gcloud-key.json
+
+      - name: Set GOOGLE_APPLICATION_CREDENTIALS
+        run: echo "GOOGLE_APPLICATION_CREDENTIALS=$GITHUB_WORKSPACE/gcloud-key.json" >> $GITHUB_ENV
+
+      - name: Run Streamlit app for testing (Optional)
+        run: |
+          streamlit run app.py &  # You can adjust the path to your main Streamlit app file
+          sleep 5  # Give Streamlit some time to initialize
+
+      - name: Run tests (Optional, if you have tests)
+        run: |
+          # If you have any test scripts, run them here
+          python -m unittest discover  # Or any other test framework you use
+
