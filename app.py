@@ -1,18 +1,15 @@
 import streamlit as st
-from docx.document import Document
+from docx import Document  # Fixed import
 from transformers import pipeline
 import fitz  # PyMuPDF
-from dotenv import load_dotenv
 import os
 import tempfile
 from google.cloud import texttospeech
 
-with open("lateral-attic-458912-v0-e43739667fca.json", "w") as f:
-    f.write(st.secrets["gcp"]["credentials"])
-    
-# Load environment variables
-load_dotenv()
-os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+# Load Google Cloud credentials from secrets and write to a temp file
+with tempfile.NamedTemporaryFile(delete=False, suffix=".json") as f:
+    f.write(st.secrets["gcp"]["credentials"].encode())
+    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = f.name
 
 # Initialize summarization pipeline
 summarizer = pipeline("summarization", model="facebook/bart-large-cnn")
@@ -39,7 +36,6 @@ def extract_text(file):
 
     else:
         return None
-
 
 # Summarize text in chunks
 def summarize_large_text(text, chunk_size=1000):
@@ -72,9 +68,12 @@ def synthesize_speech(text, output_path):
     with open(output_path, "wb") as out:
         out.write(response.audio_content)
 
+# Initialize session state
+if "summary_ready" not in st.session_state:
+    st.session_state.summary_ready = False
+
 # File upload UI
 uploaded_file = st.file_uploader("Upload a .txt, .pdf, .docx, or .doc file", type=["txt", "pdf", "docx", "doc"])
-
 
 if uploaded_file:
     raw_text = extract_text(uploaded_file)
@@ -89,19 +88,23 @@ if uploaded_file:
                 st.success("Summary Ready!")
                 st.subheader("✍️ Summary")
                 st.write(summary)
-
-            with st.spinner("Generating audio..."):
-                # Generate and save audio
-                with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as tmp_file:
-                    synthesize_speech(summary, tmp_file.name)
-                    audio_path = tmp_file.name
-
-                # Read audio content
-                with open(audio_path, "rb") as f:
-                    audio_bytes = f.read()
-
-                st.success("🎧 Audio Ready!")
-                st.download_button("⬇️ Download Podcast", data=audio_bytes, file_name="summary_podcast.mp3", mime="audio/mp3")
+                st.session_state.summary = summary
+                st.session_state.summary_ready = True
 
     else:
         st.error("Unsupported file or failed to extract text.")
+
+# Audio generation section
+if st.session_state.summary_ready:
+    with st.spinner("Generating audio..."):
+        # Generate and save audio
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as tmp_file:
+            synthesize_speech(st.session_state.summary, tmp_file.name)
+            audio_path = tmp_file.name
+
+        # Read audio content
+        with open(audio_path, "rb") as f:
+            audio_bytes = f.read()
+
+        st.success("🎧 Audio Ready!")
+        st.download_button("⬇️ Download Podcast", data=audio_bytes, file_name="summary_podcast.mp3", mime="audio/mp3")
