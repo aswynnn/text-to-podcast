@@ -1,0 +1,4 @@
+# Secrets and environment config
+.env
+*.json
+*.key
