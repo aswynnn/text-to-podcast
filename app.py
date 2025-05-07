@@ -107,4 +107,5 @@ if st.session_state.summary_ready:
             audio_bytes = f.read()
 
         st.success("🎧 Audio Ready!")
+        st.audio(audio_bytes, format="audio/mp3")
         st.download_button("⬇️ Download Podcast", data=audio_bytes, file_name="summary_podcast.mp3", mime="audio/mp3")
