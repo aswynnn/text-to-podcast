@@ -3,7 +3,7 @@ Text to speech converter, summarized the text and gives an audio feedback about 
 
 # 📄 ➡️ 🎧 Document to Podcast
 
-This Streamlit app lets you convert `.txt` or `.pdf` documents into summarized audio podcasts using Google Cloud Text-to-Speech and Hugging Face transformers.
+This Streamlit app lets you convert `.doc`,`.docx`,`.txt` or `.pdf` documents into summarized audio podcasts using Google Cloud Text-to-Speech and Hugging Face transformers.
 
 ---
 
