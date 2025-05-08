@@ -21,8 +21,8 @@ This Streamlit app lets you convert `.doc`,`.docx`,`.txt` or `.pdf` documents in
 
 1. **Clone the repository**
 
-git clone https://github.com/aswynn/texttalk.git
-cd texttalk
+[git clone https://github.com/aswynn/texttalk.git](https://github.com/aswynnn/text-to-podcast.git)
+cd text-to-podcast
 
 ---
 
