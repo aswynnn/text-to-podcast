@@ -68,7 +68,7 @@ base64 -i /absolute/path/to/your-service-account-key.json
 ---
 **For streamlit:**
 Copy the one line json key you generated and paste it in the Streamit>Your App>Three dots > Secrets
-Name the varibale and paste the single line json key.
+Name the varibale and paste the base64 json key.
 
 
 
