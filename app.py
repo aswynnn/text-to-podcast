@@ -6,17 +6,42 @@ from dotenv import load_dotenv
 import os
 import tempfile
 from google.cloud import texttospeech
+import base64
+import json
 
 # Load environment variables
 load_dotenv()
-# Check if the environment variable is set before assigning it
-google_credentials_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
-if google_credentials_path:
-    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = google_credentials_path
+
+# --- FIX START ---
+# Check if the environment variable is set
+google_credentials_base64 = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+
+# Check for secrets on Streamlit Cloud, if not found, check for local .env
+if not google_credentials_base64 and st.secrets.get("GOOGLE_APPLICATION_CREDENTIALS"):
+    google_credentials_base64 = st.secrets.get("GOOGLE_APPLICATION_CREDENTIALS")
+
+if google_credentials_base64:
+    try:
+        # Decode the base64 string and write it to a temporary file
+        credentials_json_str = base64.b64decode(google_credentials_base64).decode('utf-8')
+        credentials_json = json.loads(credentials_json_str)
+
+        # Create a temporary file to store the credentials
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".json", mode='w') as temp_file:
+            json.dump(credentials_json, temp_file)
+            temp_file_path = temp_file.name
+        
+        # Set the environment variable to the path of the temporary file
+        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = temp_file_path
+        
+    except Exception as e:
+        st.error(f"Error decoding or creating credentials file: {e}")
+        st.stop()
 else:
-    # Handle the case where the variable is not set
     st.error("GOOGLE_APPLICATION_CREDENTIALS environment variable is not set. Please follow the installation instructions.")
-    st.stop() # Stop the app execution if credentials aren't found
+    st.stop()
+
+# --- FIX END ---
 
 # Initialize summarization pipeline
 summarizer = pipeline("summarization", model="facebook/bart-large-cnn")
@@ -77,7 +102,6 @@ def synthesize_speech(text, output_path):
 
 # File upload UI
 uploaded_file = st.file_uploader("Upload a .txt, .pdf, .docx, or .doc file", type=["txt", "pdf", "docx", "doc"])
-
 
 if uploaded_file:
     raw_text = extract_text(uploaded_file)
