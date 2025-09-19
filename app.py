@@ -36,7 +36,7 @@ def setup_google_credentials():
     except (json.JSONDecodeError, FileNotFoundError) as e:
         st.error(f"Error setting up Google Cloud credentials from secrets: {e}")
         st.stop()
-    except Exception as e:
+    except Exception:
         # Fallback for local development using a .env file or existing env var
         if "GOOGLE_APPLICATION_CREDENTIALS" not in os.environ:
              st.warning("Google Cloud credentials not found. Please set them up in your Streamlit secrets or locally.")
@@ -105,4 +105,64 @@ def synthesize_speech(text, output_path):
         audio_config = texttospeech.AudioConfig(
             audio_encoding=texttospeech.AudioEncoding.MP3
         )
-        response = client.synt
+        response = client.synthesize_speech(
+            input=synthesis_input, voice=voice, audio_config=audio_config
+        )
+        with open(output_path, "wb") as out:
+            out.write(response.audio_content)
+        return True
+    except Exception as e:
+        st.error(f"Failed to generate audio. Error: {e}")
+        st.info("Please ensure your Google Cloud Text-to-Speech API is enabled and your credentials are correct.")
+        return False
+
+# --- Main App Logic ---
+
+# Set up credentials at the start
+setup_google_credentials()
+
+# Initialize the summarization pipeline once
+summarizer = pipeline("summarization", model="facebook/bart-large-cnn")
+
+st.title("📄 ➡️ 🎧 Document to Podcast")
+st.markdown("Upload a document, and this app will summarize it and convert the summary into an audio podcast for you.")
+
+uploaded_file = st.file_uploader("Upload a .txt, .pdf, or .docx file", type=["txt", "pdf", "docx"])
+
+if uploaded_file:
+    raw_text = extract_text(uploaded_file)
+
+    if raw_text:
+        st.subheader("📃 Document Preview")
+        st.text_area("Preview of your document text:", raw_text[:1000] + "...", height=200)
+
+        if st.button("🔍 Summarize and 🎤 Generate Podcast"):
+            summary = ""
+            with st.spinner("Summarizing your document... This may take a moment. ⏳"):
+                summary = summarize_large_text(raw_text)
+            
+            st.success("Summary Ready! ✅")
+            st.subheader("✍️ Summary")
+            st.write(summary)
+
+            with st.spinner("Generating your audio podcast... 🎙️"):
+                # Create a temporary file for the audio
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as tmp_audio_file:
+                    audio_path = tmp_audio_file.name
+                
+                if synthesize_speech(summary, audio_path):
+                    # Read the generated audio file for download
+                    with open(audio_path, "rb") as f:
+                        audio_bytes = f.read()
+                    
+                    st.success("🎧 Audio Ready!")
+                    st.audio(audio_bytes, format="audio/mp3")
+                    st.download_button(
+                        label="⬇️ Download Podcast",
+                        data=audio_bytes,
+                        file_name="summary_podcast.mp3",
+                        mime="audio/mp3"
+                    )
+                # Clean up the temporary file
+                if os.path.exists(audio_path):
+                    os.remove(audio_path)
