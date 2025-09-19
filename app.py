@@ -1,28 +1,26 @@
 import streamlit as st
 from docx import Document
-from transformers import pipeline
 import fitz  # PyMuPDF
 import os
 import tempfile
 from google.cloud import texttospeech
-import google.generativeai as genai # Import the new library
+import google.generativeai as genai
 
 # --- INITIALIZATION ---
 
-# Load Google Cloud credentials for Text-to-Speech
-with tempfile.NamedTemporaryFile(delete=False, suffix=".json") as f:
-    f.write(st.secrets["gcp"]["credentials"].encode())
-    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = f.name
-    
-# Configure the Gemini API with the secret key
+# Configure Google APIs
 try:
+    # Used for Text-to-Speech
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".json") as f:
+        f.write(st.secrets["gcp"]["credentials"].encode())
+        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = f.name
+    
+    # Used for Text Generation & Summarization
     genai.configure(api_key=st.secrets["gemini"]["api_key"])
+except KeyError as e:
+    st.error(f"Secret not found: {e}. Please check your .streamlit/secrets.toml file.")
 except Exception as e:
-    st.error("Failed to configure Gemini API. Please check your API key in the secrets file.")
-
-
-# Initialize the summarization pipeline (still needed for the document part)
-summarizer = pipeline("summarization", model="facebook/bart-large-cnn")
+    st.error(f"Failed to configure Google APIs: {e}")
 
 
 # --- HELPER FUNCTIONS ---
@@ -33,56 +31,35 @@ def extract_text(file):
     
     if file_extension == ".txt":
         return file.read().decode("utf-8")
-
     elif file_extension == ".pdf":
         doc = fitz.open(stream=file.read(), filetype="pdf")
         return "\n".join([page.get_text() for page in doc])
-
     elif file_extension in [".docx", ".doc"]:
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".docx") as temp_file:
-            temp_file.write(file.read())
-            temp_path = temp_file.name
-        doc = Document(temp_path)
-        os.remove(temp_path)
+        doc = Document(file)
         return "\n".join([para.text for para in doc.paragraphs])
-    
     return None
 
-def summarize_large_text(text, chunk_size=1024, max_length=150, min_length=40):
-    """Summarizes text by breaking it into chunks first."""
-    text = text.replace('.', '.<eos>').replace('?', '?<eos>').replace('!', '!<eos>')
-    sentences = text.split('<eos>')
-    current_chunk = ""
-    chunks = []
-    
-    for sentence in sentences:
-        if len(current_chunk) + len(sentence) <= chunk_size:
-            current_chunk += sentence
-        else:
-            chunks.append(current_chunk)
-            current_chunk = sentence
-    if current_chunk:
-        chunks.append(current_chunk)
-
-    summaries = summarizer(chunks, max_length=max_length, min_length=min_length, do_sample=False)
-    return " ".join([summary['summary_text'] for summary in summaries])
-
-# MODIFIED FUNCTION: Uses Gemini API instead of a local model
-def generate_text_from_topic(topic):
-    """Generates a short article on a given topic using the Gemini API."""
+# NEW FUNCTION: Uses Gemini API for summarization
+def summarize_with_gemini(text_to_summarize):
+    """Summarizes text using the Gemini API."""
     model = genai.GenerativeModel('gemini-pro')
-    # A more descriptive prompt for better podcast-style content
-    prompt = f"""
-    Generate a short, engaging article about the topic: '{topic}'.
-    The article should be suitable to be read aloud as a mini-podcast segment.
-    Keep the tone informative yet conversational.
-    Aim for a length of about 300-400 words.
-    """
+    prompt = f"Please summarize the following text in a concise and clear manner, suitable for a short podcast script:\n\n---\n\n{text_to_summarize}"
     try:
         response = model.generate_content(prompt)
         return response.text
     except Exception as e:
-        # Handle potential API errors, e.g., content filtering
+        st.error(f"An error occurred during summarization: {e}")
+        return None
+
+# MODIFIED FUNCTION: Uses Gemini API for text generation
+def generate_text_from_topic(topic):
+    """Generates a short article on a given topic using the Gemini API."""
+    model = genai.GenerativeModel('gemini-pro')
+    prompt = f"Generate a short, engaging article about '{topic}', suitable for a mini-podcast. Aim for about 300 words."
+    try:
+        response = model.generate_content(prompt)
+        return response.text
+    except Exception as e:
         st.error(f"An error occurred while generating text: {e}")
         return None
 
@@ -90,17 +67,9 @@ def synthesize_speech(text, output_path):
     """Synthesizes text into an MP3 audio file using Google Cloud TTS."""
     client = texttospeech.TextToSpeechClient()
     synthesis_input = texttospeech.SynthesisInput(text=text)
-    voice = texttospeech.VoiceSelectionParams(
-        language_code="en-US",
-        name="en-US-Wavenet-F",
-        ssml_gender=texttospeech.SsmlVoiceGender.FEMALE
-    )
-    audio_config = texttospeech.AudioConfig(
-        audio_encoding=texttospeech.AudioEncoding.MP3
-    )
-    response = client.synthesize_speech(
-        input=synthesis_input, voice=voice, audio_config=audio_config
-    )
+    voice = texttospeech.VoiceSelectionParams(language_code="en-US", name="en-US-Wavenet-F")
+    audio_config = texttospeech.AudioConfig(audio_encoding=texttospeech.AudioEncoding.MP3)
+    response = client.synthesize_speech(input=synthesis_input, voice=voice, audio_config=audio_config)
     with open(output_path, "wb") as out:
         out.write(response.audio_content)
 
@@ -112,39 +81,38 @@ st.markdown("Turn any document or topic into a short, listenable audio podcast!"
 
 tab1, tab2 = st.tabs(["▶️ From a Document", "▶️ From a Topic"])
 
-# --- TAB 1: Process from a Document ---
+# --- TAB 1: Process from a Document (Now using Gemini for summary) ---
 with tab1:
     st.header("Upload a Document")
-    uploaded_file = st.file_uploader(
-        "Upload a .txt, .pdf, or .docx file to summarize and convert to audio.",
-        type=["txt", "pdf", "docx", "doc"]
-    )
+    uploaded_file = st.file_uploader("Upload a .txt, .pdf, or .docx file.", type=["txt", "pdf", "docx", "doc"])
     if uploaded_file:
         raw_text = extract_text(uploaded_file)
         if raw_text:
             st.subheader("📃 Document Preview")
-            st.text_area("Preview of your document:", raw_text[:1500] + "...", height=200)
+            st.text_area("Preview:", raw_text[:1500] + "...", height=200)
             if st.button("🔍 Summarize and 🎤 Generate Podcast", key="summarize_btn"):
-                with st.spinner("Summarizing the document... ⏳"):
-                    summary = summarize_large_text(raw_text)
-                st.success("Summary Ready!")
-                st.subheader("✍️ Generated Summary")
-                st.write(summary)
-                with st.spinner("Generating audio podcast... 🎙️"):
-                    with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as tmp_audio_file:
-                        synthesize_speech(summary, tmp_audio_file.name)
-                        audio_path = tmp_audio_file.name
-                st.success("🎧 Audio Ready!")
-                with open(audio_path, "rb") as f:
-                    st.audio(f.read(), format="audio/mp3")
-                os.remove(audio_path)
+                with st.spinner("Summarizing the document with Gemini... ⏳"):
+                    summary = summarize_with_gemini(raw_text)
+                
+                if summary:
+                    st.success("Summary Ready!")
+                    st.subheader("✍️ Generated Summary")
+                    st.write(summary)
+                    with st.spinner("Generating audio podcast... 🎙️"):
+                        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as tmp_audio_file:
+                            synthesize_speech(summary, tmp_audio_file.name)
+                            audio_path = tmp_audio_file.name
+                    st.success("🎧 Audio Ready!")
+                    with open(audio_path, "rb") as f:
+                        st.audio(f.read(), format="audio/mp3")
+                    os.remove(audio_path)
         else:
             st.error("Unsupported file type or failed to extract text.")
 
-# --- TAB 2: Process from a Topic (Now using Gemini) ---
+# --- TAB 2: Process from a Topic ---
 with tab2:
     st.header("Generate from a Topic")
-    topic_input = st.text_input("Enter a topic you want to hear a podcast about (e.g., 'The science of sleep'):")
+    topic_input = st.text_input("Enter a topic:", placeholder="e.g., The history of coffee")
     if st.button("✍️ Generate Text & 🎤 Podcast", key="generate_btn"):
         if topic_input:
             with st.spinner(f"Generating an article about '{topic_input}' with Gemini... 🧠"):
@@ -161,12 +129,7 @@ with tab2:
                 with open(audio_path, "rb") as f:
                     audio_bytes = f.read()
                 st.audio(audio_bytes, format="audio/mp3")
-                st.download_button(
-                    "⬇️ Download Podcast",
-                    data=audio_bytes,
-                    file_name=f"{topic_input.replace(' ', '_')}.mp3",
-                    mime="audio/mp3"
-                )
+                st.download_button("⬇️ Download Podcast", data=audio_bytes, file_name=f"{topic_input.replace(' ', '_')}.mp3", mime="audio/mp3")
                 os.remove(audio_path)
         else:
             st.warning("Please enter a topic first!")
