@@ -17,8 +17,6 @@ summarizer = pipeline("summarization", model="facebook/bart-large-cnn")
 # Streamlit page config
 st.set_page_config(page_title="Document to Podcast", layout="centered")
 st.title("📄 ➡️ 🎧 Text to Podcast")
-
-# Extract text helper
 def extract_text(file):
     if file.name.endswith(".txt"):
         return file.read().decode("utf-8")
